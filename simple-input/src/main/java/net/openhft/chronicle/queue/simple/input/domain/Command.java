@@ -1,10 +1,9 @@
 package net.openhft.chronicle.queue.simple.input.domain;
-public class ParsedCommand {
-  public static final String INSERT = "insert";
-  public static final String UPDATE = "update";
+public class Command {
+  public static final String UPSERT = "upsert";
   public static final String DELETE = "delete";
   private String action;
-  private Integer id;
+  private long id;
   private String value;
 
   public String getAction() {
@@ -15,11 +14,11 @@ public class ParsedCommand {
     this.action = action;
   }
 
-  public Integer getId() {
+  public long getId() {
     return id;
   }
 
-  public void setId(Integer id) {
+  public void setId(long id) {
     this.id = id;
   }
 

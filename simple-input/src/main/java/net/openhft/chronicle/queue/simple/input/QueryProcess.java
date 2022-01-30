@@ -2,17 +2,17 @@ package net.openhft.chronicle.queue.simple.input;
 
 import com.sun.net.httpserver.HttpServer;
 import net.openhft.chronicle.queue.ExcerptTailer;
-import net.openhft.chronicle.queue.impl.single.SingleChronicleQueue;
-import net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder;
-import net.openhft.chronicle.queue.simple.input.domain.ParsedCommand;
+import net.openhft.chronicle.queue.simple.input.domain.Command;
+import net.openhft.chronicle.queue.simple.input.dto.CommandDTO;
 import net.openhft.chronicle.queue.simple.input.http.QueryHandler;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+
+import static java.util.concurrent.Executors.newSingleThreadExecutor;
+import static net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder.binary;
 
 /**
  * Process implementing read model for queries to items application.
@@ -20,81 +20,88 @@ import java.util.concurrent.Executors;
  * @author Daniel Flynn (dflynn)
  */
 public class QueryProcess {
-  public static void main(String[] args) {
-    // get queue from beginning
-    String path = "temp";
-    SingleChronicleQueue queue = SingleChronicleQueueBuilder.binary(path).build();
-    ExcerptTailer tailer = queue.createTailer();
+  private static final String QUEUE = "queue";
+  private static final String UPSERT = "upsert";
+  private static final String ITEM_PATH = "/item";
+  private static final String HANDLE_NEW_COMMAND = "handling new command";
+  private static final String REPLAY_TIME_MESSAGE = " micros elapsed while replaying commands";
+  private static final String REPLAY_COUNT_MESSAGE = " commands replayed";
+  private static final String AGGREGATES_PRESENT = " aggregates present";
+  private static final String HOSTNAME = "localhost";
+  private static final String SERVER_START_MESSAGE = "query server started at localhost: ";
+  private static final int PORT = 8089;
 
-    // create empty in memory data structures
-    Map<Integer, String> itemsMap = new HashMap<>();
+  private static final Map<Long, String> ITEMS_MAP = new HashMap<>();
 
-    // starting from first command, prepare to parse into values for aggregate
-    String command = tailer.readText();
-    ParsedCommand parsedCommand;
-    Integer id;
-    String value;
-    String action;
+  private static final QueryHandler QUERY_HANDLER = new QueryHandler(ITEMS_MAP);
+  private static final ExcerptTailer TAILER =
+      binary(QUEUE).build().createTailer();
 
-    // replay commands from queue to assemble aggregates in in memory data structures
-    long nanosReplay = System.nanoTime();
-    while (command != null) {
-      parsedCommand = parseToCommand(command);
-      id = parsedCommand.getId();
-      value = parsedCommand.getValue();
-      action = parsedCommand.getAction();
+  private static final Command COMMAND = new Command();
+  private static CommandDTO COMMAND_DTO = new CommandDTO();
 
-      if ("insert".equalsIgnoreCase(action) || "update".equalsIgnoreCase(action)) {
-        itemsMap.put(id, value);
-      } else {
-        itemsMap.remove(id);
-      }
-      command = tailer.readText();
+  private static long NANOS_START = System.nanoTime();
+  private static boolean READ = false;
+
+  public static void main(String[] args) throws IOException {
+    replayCommands();
+    startServer(getServer());
+    handleCommands();
+  }
+
+  private static Command parseToCommand(CommandDTO dto) {
+    COMMAND.setAction(dto.getAction());
+    COMMAND.setId(dto.getId());
+    if (dto.getValue() != null) {
+      COMMAND.setValue(dto.getValue());
     }
-    System.out.println((System.nanoTime() - nanosReplay) / 1000 + " micros elapsed while replaying queue");
+    return COMMAND;
+  }
 
-    // process incoming queries while continuing to update aggregates by consuming commands from
-    // queue
-    HttpServer server;
-    int port = 8089;
-    try {
-      server = HttpServer.create(new InetSocketAddress("localhost", port), 0);
-    } catch (IOException ex){
-      ex.printStackTrace();
-      return;
+  private static void replayCommands() {
+    NANOS_START = System.nanoTime();
+    int commandsReplayed = 0;
+    while (didReadAndSetNewCommandDTO()) {
+      commandsReplayed++;
+      handleCommand(parseToCommand(COMMAND_DTO));
     }
-    ExecutorService executor = Executors.newSingleThreadExecutor();
-    server.createContext("/item", new QueryHandler(itemsMap));
-    server.setExecutor(executor);
+    System.out.println((System.nanoTime() - NANOS_START) / 1000 + REPLAY_TIME_MESSAGE);
+    System.out.println(commandsReplayed + REPLAY_COUNT_MESSAGE);
+    System.out.println(ITEMS_MAP.size() + AGGREGATES_PRESENT);
+  }
+
+  private static void startServer(HttpServer server) {
+    server.createContext(ITEM_PATH, QUERY_HANDLER);
+    server.setExecutor(newSingleThreadExecutor());
     server.start();
-    System.out.println("query server started at localhost:" + port);
+    System.out.println(SERVER_START_MESSAGE + PORT);
+  }
 
+  private static HttpServer getServer() throws IOException {
+    return HttpServer.create(new InetSocketAddress(HOSTNAME, PORT), 0);
+  }
+
+  private static void handleCommands() {
     while (true) {
-      command = tailer.readText();
-      while (command != null) {
-        parsedCommand = parseToCommand(command);
-        id = parsedCommand.getId();
-        value = parsedCommand.getValue();
-        action = parsedCommand.getAction();
-
-        if ("insert".equalsIgnoreCase(action) || "update".equalsIgnoreCase(action)) {
-          itemsMap.put(id, value);
-        } else {
-          itemsMap.remove(id);
-        }
-        command = tailer.readText();
+      if (didReadAndSetNewCommandDTO()) {
+        handleCommand(parseToCommand(COMMAND_DTO));
       }
     }
   }
 
-  private static ParsedCommand parseToCommand(String command) {
-    ParsedCommand parsedCommand = new ParsedCommand();
-    String[] tokens = command.split("\\s+");
-    parsedCommand.setAction(tokens[0]);
-    parsedCommand.setId(Integer.parseInt(tokens[1]));
-    if (tokens.length > 2) {
-      parsedCommand.setValue(tokens[2]);
+  private static void handleCommand(Command parsedCommand) {
+    System.out.println(HANDLE_NEW_COMMAND);
+
+    // business logic here, placed into in-memory data structure
+    // command -> data to be read
+    if (UPSERT.equalsIgnoreCase(parsedCommand.getAction())) {
+      ITEMS_MAP.put(parsedCommand.getId(), parsedCommand.getValue());
+    } else {
+      ITEMS_MAP.remove(parsedCommand.getId());
     }
-    return parsedCommand;
+  }
+
+  private static boolean didReadAndSetNewCommandDTO() {
+    return TAILER.readDocument(wire -> COMMAND_DTO.readMarshallable(wire));
   }
 }

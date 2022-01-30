@@ -1,52 +1,59 @@
 package net.openhft.chronicle.queue.simple.input.http;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectReader;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import net.openhft.chronicle.queue.ExcerptAppender;
+import net.openhft.chronicle.queue.simple.input.domain.CommandValidator;
 import net.openhft.chronicle.queue.simple.input.dto.CommandDTO;
 
 import java.io.IOException;
-import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.concurrent.atomic.AtomicBoolean;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class CommandHandler implements HttpHandler {
-  private static final ObjectMapper mapper = new ObjectMapper();
-  private ExcerptAppender appender;
+  private static final ObjectReader READER = new ObjectMapper().readerFor(CommandDTO.class);
+  private final ExcerptAppender APPENDER;
+  private static final StringBuilder sb = new StringBuilder();
+  private static CommandDTO COMMAND_DTO = new CommandDTO();
+  private static boolean success = false;
+  private static final String INVALID_COMMAND = "Invalid command.";
 
   public CommandHandler(ExcerptAppender appender) {
-    this.appender = appender;
+    this.APPENDER = appender;
   }
 
   @Override
   public void handle(HttpExchange exchange) throws IOException {
-    AtomicBoolean success = new AtomicBoolean(false);
     if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-      success.set(handlePost(exchange));
+      success = handlePost(exchange);
     } else {
-      System.err.println("Unsupported HTTP action.");
+      System.err.println("Unsupported HTTP action:" + exchange.getRequestMethod());
       return;
     }
 
-    StringBuilder sb = new StringBuilder();
-    if (success.get()) {
+    if (success) {
       sb.append("Command received.");
       exchange.sendResponseHeaders(200, sb.length());
     } else {
       sb.append("Command not registered.");
       exchange.sendResponseHeaders(400, sb.length());
     }
-    OutputStream stream = exchange.getResponseBody();
-    stream.write(sb.toString().getBytes(StandardCharsets.UTF_8));
-    stream.flush();
-    stream.close();
+    exchange.getResponseBody().write(sb.toString().getBytes(UTF_8));
+    sb.setLength(0);
   }
 
   public boolean handlePost(HttpExchange exchange) {
     try {
-      appender.writeText(mapper.readValue(exchange.getRequestBody(), CommandDTO.class).toCommand());
-      return true;
+      COMMAND_DTO = READER.readValue(exchange.getRequestBody());
+      if (CommandValidator.isValid(COMMAND_DTO)) {
+        APPENDER.writeDocument(wire -> COMMAND_DTO.writeMarshallable(wire));
+        return true;
+      } else {
+        System.err.println(INVALID_COMMAND);
+        return false;
+      }
     } catch (IOException e) {
       e.printStackTrace();
       return false;

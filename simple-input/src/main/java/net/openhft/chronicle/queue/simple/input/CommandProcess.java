@@ -2,14 +2,13 @@ package net.openhft.chronicle.queue.simple.input;
 
 import com.sun.net.httpserver.HttpServer;
 import net.openhft.chronicle.queue.ExcerptAppender;
-import net.openhft.chronicle.queue.impl.single.SingleChronicleQueue;
-import net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder;
 import net.openhft.chronicle.queue.simple.input.http.CommandHandler;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+
+import static java.util.concurrent.Executors.newSingleThreadExecutor;
+import static net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder.binary;
 
 /**
  * Command path for items application.
@@ -17,25 +16,25 @@ import java.util.concurrent.Executors;
  * @author Daniel Flynn (dflynn)
  */
 public class CommandProcess {
-  public static void main(String[] args) {
-    //get queue for writing
-    String path = "temp";
-    SingleChronicleQueue queue = SingleChronicleQueueBuilder.binary(path).build();
-    ExcerptAppender appender = queue.acquireAppender();
+  private static final String HOSTNAME = "localhost";
+  private static final String QUEUE = "queue";
+  private static final String COMMAND_PATH = "/item";
+  private static final String SERVER_START_MESSAGE = "Server started at localhost:";
+  private static final CommandHandler COMMAND_HANDLER = new CommandHandler(binary(QUEUE).build().acquireAppender());
+  private static final int PORT = 8088;
 
-    //set up http server to ingest commands
-    HttpServer server;
-    int port = 8088;
-    try {
-      server = HttpServer.create(new InetSocketAddress("localhost", port), 0);
-    } catch (IOException e) {
-      e.printStackTrace();
-      return;
-    }
-    ExecutorService executor = Executors.newSingleThreadExecutor();
-    server.createContext("/item", new CommandHandler(appender));
-    server.setExecutor(executor);
+  public static void main(String[] args) throws IOException {
+    startServer(createServer());
+  }
+
+  private static HttpServer createServer() throws IOException {
+    return HttpServer.create(new InetSocketAddress(HOSTNAME, PORT), 0);
+  }
+
+  private static void startServer(HttpServer server) {
+    server.createContext(COMMAND_PATH, COMMAND_HANDLER);
+    server.setExecutor(newSingleThreadExecutor());
     server.start();
-    System.out.println("server started at localhost:" + port);
+    System.out.println(SERVER_START_MESSAGE + PORT);
   }
 }

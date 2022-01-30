@@ -4,61 +4,71 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 
 import java.io.IOException;
-import java.io.OutputStream;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
+
+import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class QueryHandler implements HttpHandler {
-  private final Map<Integer, String> itemsMap;
+  private final Map<Long, String> ITEMS_MAP;
+  private static long NANOS_START = 0;
+  private static String QUERY_RESPONSE = "";
+  private static final Map<String, String> QUERY_PARAM_MAP = new HashMap<>();
+  private static String[] NAME_VALUE_PAIRS = new String[2];
+  private static String NAME = "";
+  private static String VALUE = "";
+  private static final StringBuilder SB = new StringBuilder();
 
-  public QueryHandler(Map<Integer, String> itemsMap) {
-    this.itemsMap = itemsMap;
+  private static final String UNSUPPORTED_HTTP_MESSAGE = "Unsupported HTTP action.";
+  private static final String QUERY_RESULT = "Query result:";
+  private static final String NO_QUERY_RESULT = "No result for query.";
+  private static final String MICROS_ELAPSED = "Micros elapsed: ";
+
+  public QueryHandler(Map<Long, String> itemsMap) {
+    this.ITEMS_MAP = itemsMap;
   }
 
   @Override
   public void handle(HttpExchange exchange) throws IOException {
-    AtomicBoolean queryResultFound = new AtomicBoolean(false);
-    String queryResponse;
-    if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-      queryResponse = handleGet(exchange);
-      if (queryResponse != null) {
-        queryResultFound.set(true);
-      }
-    } else {
-      System.err.println("Unsupported HTTP action.");
-      return;
-    }
-
-    StringBuilder sb = new StringBuilder();
-
-    OutputStream stream = exchange.getResponseBody();
-    if (queryResultFound.get()) {
-      exchange.sendResponseHeaders(200, sb.length());
-      sb.append("Query Result:");
-      sb.append(System.lineSeparator());
-      sb.append(queryResponse);
-    } else {
-      sb.append("No result for query.");
-      exchange.sendResponseHeaders(400, sb.length());
-    }
-    stream.write(sb.toString().getBytes(StandardCharsets.UTF_8));
-    stream.flush();
-    stream.close();
+    NANOS_START = System.nanoTime();
+    QUERY_RESPONSE = tryHandleGet(exchange);
+    respond(exchange, QUERY_RESPONSE, NANOS_START);
   }
 
-  private String handleGet(HttpExchange exchange) {
-    Map<String, String> queryParamMap = new HashMap<>();
-    URI uri = exchange.getRequestURI();
-    String[] nameValuePairs = uri.getQuery().split("&");
-    for (String param : nameValuePairs) {
-      String name = param.split("=")[0];
-      String value = param.split("=")[1];
-      queryParamMap.put(name, value);
+  private String tryHandleGet(HttpExchange exchange) {
+    if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
+      return handleGet(exchange.getRequestURI());
+    } else {
+      System.err.println(UNSUPPORTED_HTTP_MESSAGE);
+      return null;
     }
-    Integer id = Integer.parseInt(queryParamMap.get("id"));
-    return itemsMap.get(id);
+  }
+
+  private String handleGet(URI uri) {
+    NAME_VALUE_PAIRS = uri.getQuery().split("&");
+    for (String param : NAME_VALUE_PAIRS) {
+      NAME = param.split("=")[0];
+      VALUE = param.split("=")[1];
+      QUERY_PARAM_MAP.put(NAME, VALUE);
+    }
+    return ITEMS_MAP.get(Long.parseLong(QUERY_PARAM_MAP.get("id")));
+  }
+
+  private void respond(HttpExchange exchange, String queryResponse, long nanos) throws IOException {
+    if (queryResponse != null) {
+      exchange.sendResponseHeaders(200, SB.length());
+      SB.append(QUERY_RESULT);
+      SB.append(System.lineSeparator());
+      SB.append(queryResponse);
+      SB.append(System.lineSeparator());
+    } else {
+      SB.append(NO_QUERY_RESULT);
+      exchange.sendResponseHeaders(400, SB.length());
+    }
+    exchange.getResponseBody().write(SB.toString().getBytes(UTF_8));
+    System.out.println(MICROS_ELAPSED + ((System.nanoTime() - nanos) / 1000));
+    exchange.getResponseBody().close();
+    SB.setLength(0);
   }
 }
