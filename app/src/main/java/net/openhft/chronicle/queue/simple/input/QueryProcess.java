@@ -54,7 +54,6 @@ public class QueryProcess {
   private static final ObjectReader READER = new ObjectMapper().readerFor(CommandDTO.class);
 
   private static boolean HEALTHY = false;
-  private static long NANOS_START = System.nanoTime();
 
   public static void main(String[] args) throws IOException, SQLException {
     replayCommandsFromEventStore(args);
@@ -81,7 +80,7 @@ public class QueryProcess {
     }
     String pgUrl = "jdbc:postgresql://" + DB_HOSTNAME + ":5432/postgres";
     Connection connection = DriverManager.getConnection(pgUrl, pgUser, pgPass);
-    NANOS_START = System.nanoTime();
+    long NANOS_START = System.nanoTime();
     int commandsReplayed = 0;
     // replay commands from event store
     PreparedStatement statement =
@@ -119,7 +118,7 @@ public class QueryProcess {
     System.out.println(SERVER_START_MESSAGE + HOSTNAME + ":" + PORT);
   }
 
-  private static HttpServer getServer() throws IOException, SQLException {
+  private static HttpServer getServer() throws IOException{
     QUERY_HANDLER = new QueryHandler(ITEMS_MAP);
     return HttpServer.create(new InetSocketAddress(HOSTNAME, PORT), 0);
   }

@@ -4,14 +4,14 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>net.openhft</groupId>
-    <artifactId>chronicle-queue-demo</artifactId>
+    <groupId>com.flynndcs</groupId>
+    <artifactId>command-query</artifactId>
     <version>1.0-SNAPSHOT</version>
-    <name>OpenHFT/${project.artifactId}</name>
+    <name>flynndcs/${project.artifactId}</name>
     <packaging>pom</packaging>
 
     <modules>
-        <module>command-query</module>
+        <module>app</module>
     </modules>
 
     <dependencyManagement>
