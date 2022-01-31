@@ -5,6 +5,8 @@ import net.openhft.chronicle.wire.Marshallable;
 import net.openhft.chronicle.wire.WireIn;
 import net.openhft.chronicle.wire.WireOut;
 
+import java.util.UUID;
+
 public class CommandDTO implements Marshallable {
   @JsonProperty("action")
   private String action;
@@ -27,12 +29,12 @@ public class CommandDTO implements Marshallable {
     return this.id;
   }
 
-  public String getValue() {
-    return this.value;
-  }
-
   public void setId(long id) {
     this.id = id;
+  }
+
+  public String getValue() {
+    return this.value;
   }
 
   public void setValue(String value) {

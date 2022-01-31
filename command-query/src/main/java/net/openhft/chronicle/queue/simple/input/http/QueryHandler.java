@@ -5,6 +5,7 @@ import com.sun.net.httpserver.HttpHandler;
 
 import java.io.IOException;
 import java.net.URI;
+import java.sql.Connection;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -64,6 +65,7 @@ public class QueryHandler implements HttpHandler {
       SB.append(System.lineSeparator());
     } else {
       SB.append(NO_QUERY_RESULT);
+      SB.append(System.lineSeparator());
       exchange.sendResponseHeaders(400, SB.length());
     }
     exchange.getResponseBody().write(SB.toString().getBytes(UTF_8));
