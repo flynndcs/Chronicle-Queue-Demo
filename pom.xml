@@ -12,11 +12,6 @@
 
     <modules>
         <module>simple-input</module>
-        <module>simple-translator</module>
-        <module>simple-avro-example</module>
-        <module>order-processor</module>
-        <module>message-history-demo</module>
-        <module>messages-with-text</module>
     </modules>
 
     <dependencyManagement>
@@ -56,8 +51,6 @@
             <scope>test</scope>
         </dependency>
 
-
-
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
@@ -69,17 +62,22 @@
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.8.1</version>
-
+                <artifactId>maven-assembly-plugin</artifactId>
+                <version>3.3.0</version>
                 <configuration>
-                    <source>1.8</source>
-                    <target>1.8</target>
-                    <!-- we want to fail if we depend on any deprecated methods -->
-                    <failOnWarning>true</failOnWarning>
-                    <showWarnings>true</showWarnings>
-                    <compilerArgument>-Xlint:all,-rawtypes,-unchecked</compilerArgument>
+                    <descriptorRefs>
+                        <descriptorRef>jar-with-dependencies</descriptorRef>
+                    </descriptorRefs>
                 </configuration>
+                <executions>
+                    <execution>
+                        <id>assemble-all</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>single</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

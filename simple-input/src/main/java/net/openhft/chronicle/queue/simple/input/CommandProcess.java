@@ -1,7 +1,6 @@
 package net.openhft.chronicle.queue.simple.input;
 
 import com.sun.net.httpserver.HttpServer;
-import net.openhft.chronicle.queue.ExcerptAppender;
 import net.openhft.chronicle.queue.simple.input.http.CommandHandler;
 
 import java.io.IOException;
