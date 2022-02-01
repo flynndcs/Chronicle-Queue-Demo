@@ -1,17 +1,27 @@
 package net.openhft.chronicle.queue.simple.input;
 
-import com.sun.net.httpserver.HttpServer;
+import io.micrometer.prometheus.PrometheusConfig;
+import io.micrometer.prometheus.PrometheusMeterRegistry;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import net.openhft.chronicle.core.values.LongValue;
+import net.openhft.chronicle.map.ChronicleMap;
+import net.openhft.chronicle.map.ChronicleMapBuilder;
 import net.openhft.chronicle.queue.simple.input.http.CommandHandler;
+import org.eclipse.jetty.server.Request;
+import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.server.ServerConnector;
+import org.eclipse.jetty.server.handler.AbstractHandler;
+import org.eclipse.jetty.server.handler.ContextHandler;
+import org.eclipse.jetty.server.handler.ContextHandlerCollection;
+import org.eclipse.jetty.util.thread.QueuedThreadPool;
 
+import java.io.File;
 import java.io.IOException;
-import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.util.concurrent.Executors;
-
-import static java.util.concurrent.Executors.newSingleThreadExecutor;
-import static net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder.binary;
 
 /**
  * Command path for items application.
@@ -19,22 +29,41 @@ import static net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilde
  * @author Daniel Flynn (dflynn)
  */
 public class CommandProcess {
-  private static final String QUEUE = "queue";
-  private static final String COMMAND_PATH = "/item";
+  private static final PrometheusMeterRegistry metrics =
+      new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
   private static final String SERVER_START_MESSAGE = "Server started at localhost:";
   private static String DB_HOSTNAME = "localhost";
   private static String HOSTNAME = "localhost";
-  private static CommandHandler COMMAND_HANDLER;
   private static final int PORT = 8088;
+  private static final File file = new File("./map.dat");
+  private static ChronicleMap<LongValue, CharSequence> map;
+  private static Connection connection;
 
   private static final String pgUser = "postgres";
   private static final String pgPass = "postgres";
+  private static String pgUrl = "jdbc:postgresql://" + DB_HOSTNAME + ":5432/postgres";
 
-  public static void main(String[] args) throws IOException, SQLException {
+  private static String metricsString;
+
+  static {
+    try {
+      map =
+          ChronicleMapBuilder.of(LongValue.class, CharSequence.class)
+              .name("value-map")
+              .entries(1000000L)
+              .averageValue("value")
+              .createPersistedTo(file);
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+  }
+
+  public static void main(String[] args) throws Exception {
+
     startServer(createServer(args));
   }
 
-  private static HttpServer createServer(String[] args) throws IOException, SQLException {
+  private static Server createServer(String[] args) throws SQLException {
     if (args.length > 0 && args[0] != null) {
       DB_HOSTNAME = args[0];
     }
@@ -43,16 +72,50 @@ public class CommandProcess {
     }
     System.out.println("DB Hostname: " + DB_HOSTNAME);
     System.out.println("App Hostname: " + HOSTNAME);
-    String pgUrl = "jdbc:postgresql://" + DB_HOSTNAME + ":5432/postgres";
-    Connection connection = DriverManager.getConnection(pgUrl, pgUser, pgPass);
-    COMMAND_HANDLER = new CommandHandler(binary(QUEUE).build().acquireAppender(), connection);
-    return HttpServer.create(new InetSocketAddress(HOSTNAME, PORT), 0);
+    pgUrl = "jdbc:postgresql://" + DB_HOSTNAME + ":5432/postgres";
+    connection = DriverManager.getConnection(pgUrl, pgUser, pgPass);
+
+    QueuedThreadPool pool = new QueuedThreadPool(512);
+    pool.setDetailedDump(true);
+    Server server = new Server(pool);
+    ServerConnector connector = new ServerConnector(server);
+    connector.setPort(PORT);
+    connector.setHost(HOSTNAME);
+    connector.setAcceptQueueSize(1024);
+    server.addConnector(connector);
+    return server;
   }
 
-  private static void startServer(HttpServer server) {
-    server.createContext(COMMAND_PATH, COMMAND_HANDLER);
-    server.setExecutor(newSingleThreadExecutor());
+  private static void startServer(Server server) throws Exception {
+    ContextHandler metricsContext = new ContextHandler("/metrics");
+    metricsContext.setContextPath("/metrics");
+    metricsContext.setAllowNullPathInfo(true);
+    metricsContext.setHandler(
+        new AbstractHandler() {
+          @Override
+          public void handle(
+              String s,
+              Request baseRequest,
+              HttpServletRequest request,
+              HttpServletResponse response)
+              throws IOException {
+            baseRequest.setHandled(true);
+            metricsString = metrics.scrape();
+            response.setStatus(200);
+            response.setContentLength(metricsString.getBytes(StandardCharsets.UTF_8).length);
+            response.getOutputStream().write(metricsString.getBytes(StandardCharsets.UTF_8));
+          }
+        });
+
+    ContextHandler context = new ContextHandler("/item");
+    context.setContextPath("/item");
+    context.setAllowNullPathInfo(true);
+    context.setHandler(new CommandHandler(map, metrics));
+
+    ContextHandlerCollection contexts = new ContextHandlerCollection(metricsContext, context);
+    server.setHandler(contexts);
     server.start();
     System.out.println(SERVER_START_MESSAGE + PORT);
+    server.join();
   }
 }

@@ -1,13 +1,15 @@
 package net.openhft.chronicle.queue.simple.input.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+import net.openhft.chronicle.queue.simple.input.http.CommandHandler;
 import net.openhft.chronicle.wire.Marshallable;
+import net.openhft.chronicle.wire.SelfDescribingMarshallable;
 import net.openhft.chronicle.wire.WireIn;
 import net.openhft.chronicle.wire.WireOut;
 
 import java.util.UUID;
 
-public class CommandDTO implements Marshallable {
+public class CommandDTO extends SelfDescribingMarshallable {
   @JsonProperty("action")
   private String action;
 
@@ -16,6 +18,14 @@ public class CommandDTO implements Marshallable {
 
   @JsonProperty("value")
   private String value;
+
+  public CommandDTO(String action, long id, String value) {
+    this.action = action;
+    this.id = id;
+    this.value = value;
+  }
+
+  public CommandDTO() {}
 
   public String getAction() {
     return this.action;
@@ -39,20 +49,5 @@ public class CommandDTO implements Marshallable {
 
   public void setValue(String value) {
     this.value = value;
-  }
-
-  @Override
-  public void writeMarshallable(WireOut wire) {
-    wire.write("action").text(action).write("id").int64(id).write("value").text(value);
-  }
-
-  @Override
-  public void readMarshallable(WireIn wire) throws IllegalStateException {
-    wire.read("action")
-        .text(this, CommandDTO::setAction)
-        .read("id")
-        .int64(this, CommandDTO::setId)
-        .read("value")
-        .text(this, CommandDTO::setValue);
   }
 }

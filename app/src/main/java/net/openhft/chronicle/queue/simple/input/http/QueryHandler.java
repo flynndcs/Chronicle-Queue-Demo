@@ -2,6 +2,9 @@ package net.openhft.chronicle.queue.simple.input.http;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
+import net.openhft.chronicle.core.values.LongValue;
+import net.openhft.chronicle.map.ChronicleMap;
+import net.openhft.chronicle.values.Values;
 
 import java.io.IOException;
 import java.net.URI;
@@ -12,13 +15,14 @@ import java.util.Map;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 public class QueryHandler implements HttpHandler {
-  private final Map<Long, String> ITEMS_MAP;
+  private final ChronicleMap<LongValue, CharSequence> VALUE_MAP;
   private static long NANOS_START = 0;
   private static String QUERY_RESPONSE = "";
   private static final Map<String, String> QUERY_PARAM_MAP = new HashMap<>();
   private static String[] NAME_VALUE_PAIRS = new String[2];
   private static String NAME = "";
   private static String VALUE = "";
+  private static final LongValue longValue = Values.newHeapInstance(LongValue.class);
   private static final StringBuilder SB = new StringBuilder();
 
   private static final String UNSUPPORTED_HTTP_MESSAGE = "Unsupported HTTP action.";
@@ -26,14 +30,15 @@ public class QueryHandler implements HttpHandler {
   private static final String NO_QUERY_RESULT = "No result for query.";
   private static final String MICROS_ELAPSED = "Micros elapsed: ";
 
-  public QueryHandler(Map<Long, String> itemsMap) {
-    this.ITEMS_MAP = itemsMap;
+  public QueryHandler(ChronicleMap<LongValue, CharSequence> valueMap) {
+    this.VALUE_MAP = valueMap;
   }
 
   @Override
   public void handle(HttpExchange exchange) throws IOException {
     NANOS_START = System.nanoTime();
     QUERY_RESPONSE = tryHandleGet(exchange);
+    SB.setLength(0);
     respond(exchange, QUERY_RESPONSE, NANOS_START);
   }
 
@@ -53,11 +58,13 @@ public class QueryHandler implements HttpHandler {
       VALUE = param.split("=")[1];
       QUERY_PARAM_MAP.put(NAME, VALUE);
     }
-    return ITEMS_MAP.get(Long.parseLong(QUERY_PARAM_MAP.get("id")));
+    longValue.setValue(Long.parseLong(QUERY_PARAM_MAP.get("id")));
+    VALUE_MAP.getUsing(longValue, SB);
+    return SB.toString();
   }
 
   private void respond(HttpExchange exchange, String queryResponse, long nanos) throws IOException {
-    if (queryResponse != null) {
+    if (!queryResponse.equalsIgnoreCase("")) {
       exchange.sendResponseHeaders(200, SB.length());
       SB.append(QUERY_RESULT);
       SB.append(System.lineSeparator());

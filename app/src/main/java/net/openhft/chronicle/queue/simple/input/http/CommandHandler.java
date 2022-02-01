@@ -2,75 +2,83 @@ package net.openhft.chronicle.queue.simple.input.http;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
-import com.fasterxml.jackson.databind.ObjectWriter;
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
-import net.openhft.chronicle.queue.ExcerptAppender;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.prometheus.PrometheusMeterRegistry;
+import io.prometheus.client.Histogram;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import net.openhft.chronicle.core.values.LongValue;
+import net.openhft.chronicle.map.ChronicleMap;
+import net.openhft.chronicle.queue.simple.input.MessageConsumer;
 import net.openhft.chronicle.queue.simple.input.domain.CommandValidator;
 import net.openhft.chronicle.queue.simple.input.dto.CommandDTO;
+import net.openhft.chronicle.values.Values;
+import org.eclipse.jetty.server.Request;
+import org.eclipse.jetty.server.handler.AbstractHandler;
 
 import java.io.IOException;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
+import java.io.PrintWriter;
 import java.sql.SQLException;
-import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
+import static net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder.binary;
 
-public class CommandHandler implements HttpHandler {
+public class CommandHandler extends AbstractHandler {
+  private static PrometheusMeterRegistry METRICS;
   private static final ObjectReader READER = new ObjectMapper().readerFor(CommandDTO.class);
-  private static final ObjectWriter WRITER = new ObjectMapper().writerFor(CommandDTO.class);
-  private final ExcerptAppender APPENDER;
-  private static final StringBuilder sb = new StringBuilder();
+  private static ChronicleMap<LongValue, CharSequence> VALUE_MAP;
+  private static MessageConsumer CONSUMER;
   private static CommandDTO COMMAND_DTO = new CommandDTO();
   private static boolean success = false;
+  private static String response = "";
   private static final String INVALID_COMMAND = "Invalid command.";
-  private final Connection connection;
-  private PreparedStatement statement;
+  private static final LongValue key = Values.newHeapInstance(LongValue.class);
+  private static PrintWriter writer;
 
-  public CommandHandler(ExcerptAppender appender, Connection connection) {
-    this.APPENDER = appender;
-    this.connection = connection;
+  public CommandHandler(
+      ChronicleMap<LongValue, CharSequence> map, PrometheusMeterRegistry metrics) {
+    VALUE_MAP = map;
+    CONSUMER = binary("queue").build().acquireAppender().methodWriter(MessageConsumer.class);
+    METRICS = metrics;
   }
 
   @Override
-  public void handle(HttpExchange exchange) throws IOException {
-    if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-      success = handlePost(exchange);
+  public void handle(
+      String s, Request baseRequest, HttpServletRequest request, HttpServletResponse response)
+      throws IOException {
+    Timer timer = METRICS.timer("post_command");
+
+    response.setContentType("text/plain; charset=utf-8");
+    response.setCharacterEncoding("UTF-8");
+    if ("POST".equalsIgnoreCase(request.getMethod())) {
+      timer.record(() ->{
+        success = handlePost(request);
+      });
     } else {
-      System.err.println("Unsupported HTTP action:" + exchange.getRequestMethod());
+      System.err.println("Unsupported HTTP action:" + request.getMethod());
       return;
     }
 
     if (success) {
-      sb.append("Command received.");
-      sb.append(System.lineSeparator());
-      exchange.sendResponseHeaders(200, sb.length());
+      CommandHandler.response = "Command received." + System.lineSeparator();
+      response.setStatus(HttpServletResponse.SC_OK);
     } else {
-      sb.append("Command not registered.");
-      sb.append(System.lineSeparator());
-      exchange.sendResponseHeaders(400, sb.length());
+      CommandHandler.response = "Command not registered" + System.lineSeparator();
+      response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
     }
-    exchange.getResponseBody().write(sb.toString().getBytes(UTF_8));
-    exchange.getRequestBody().close();
-    sb.setLength(0);
+    writer = response.getWriter();
+    writer.print(CommandHandler.response);
+    baseRequest.setHandled(true);
+    writer.flush();
   }
 
-  public boolean handlePost(HttpExchange exchange) {
+  public boolean handlePost(HttpServletRequest request) {
     try {
-      COMMAND_DTO = READER.readValue(exchange.getRequestBody());
+      COMMAND_DTO = READER.readValue(request.getInputStream(), CommandDTO.class);
       if (CommandValidator.isValid(COMMAND_DTO)) {
-        APPENDER.writeDocument(wire -> COMMAND_DTO.writeMarshallable(wire));
-
-        // write same command to event store
-        statement =
-            connection.prepareStatement("INSERT INTO event (event, written_at) VALUES (?, ?)");
-        statement.setString(1, WRITER.writeValueAsString(COMMAND_DTO));
-        statement.setLong(2, ChronoUnit.MICROS.between(Instant.EPOCH, Instant.now()));
-        statement.executeUpdate();
-        statement.close();
-
+        key.setValue(COMMAND_DTO.getId());
+        VALUE_MAP.put(key, COMMAND_DTO.getValue());
+        System.out.println("state updated");
+        CONSUMER.onMessage(COMMAND_DTO);
         return true;
       } else {
         System.err.println(INVALID_COMMAND);
