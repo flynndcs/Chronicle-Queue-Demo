@@ -8,6 +8,7 @@ import java.net.InetSocketAddress;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.concurrent.Executors;
 
 import static java.util.concurrent.Executors.newSingleThreadExecutor;
 import static net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder.binary;

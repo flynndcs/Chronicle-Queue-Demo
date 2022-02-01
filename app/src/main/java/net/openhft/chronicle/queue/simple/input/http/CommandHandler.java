@@ -27,6 +27,7 @@ public class CommandHandler implements HttpHandler {
   private static boolean success = false;
   private static final String INVALID_COMMAND = "Invalid command.";
   private final Connection connection;
+  private PreparedStatement statement;
 
   public CommandHandler(ExcerptAppender appender, Connection connection) {
     this.APPENDER = appender;
@@ -44,12 +45,15 @@ public class CommandHandler implements HttpHandler {
 
     if (success) {
       sb.append("Command received.");
+      sb.append(System.lineSeparator());
       exchange.sendResponseHeaders(200, sb.length());
     } else {
       sb.append("Command not registered.");
+      sb.append(System.lineSeparator());
       exchange.sendResponseHeaders(400, sb.length());
     }
     exchange.getResponseBody().write(sb.toString().getBytes(UTF_8));
+    exchange.getRequestBody().close();
     sb.setLength(0);
   }
 
@@ -60,7 +64,7 @@ public class CommandHandler implements HttpHandler {
         APPENDER.writeDocument(wire -> COMMAND_DTO.writeMarshallable(wire));
 
         // write same command to event store
-        PreparedStatement statement =
+        statement =
             connection.prepareStatement("INSERT INTO event (event, written_at) VALUES (?, ?)");
         statement.setString(1, WRITER.writeValueAsString(COMMAND_DTO));
         statement.setLong(2, ChronoUnit.MICROS.between(Instant.EPOCH, Instant.now()));

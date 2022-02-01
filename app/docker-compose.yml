@@ -1,7 +1,7 @@
 version: '3.7'
 services:
   app:
-    image: simple_input:latest
+    image: app:latest
     ports:
       - "8088:8088"
       - "8089:8089"

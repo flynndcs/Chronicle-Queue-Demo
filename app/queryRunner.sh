@@ -1,3 +1,1 @@
-#!/bin/bash
-
-seq 1 10000 | xargs -I % -P 64 curl http://localhost:8089/item?id=%
+seq 1 1000000 | xargs -I % -P 64 curl http://localhost:8089/item?id=%

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.sun.net.httpserver.HttpServer;
+import net.openhft.chronicle.core.Jvm;
 import net.openhft.chronicle.queue.ExcerptTailer;
 import net.openhft.chronicle.queue.simple.input.domain.Command;
 import net.openhft.chronicle.queue.simple.input.dto.CommandDTO;
@@ -127,6 +128,8 @@ public class QueryProcess {
     while (true) {
       if (TAILER.readDocument(COMMAND_DTO)) {
         handleCommand(parseDTOToCommand());
+      } else {
+        Jvm.pause(10);
       }
     }
   }
