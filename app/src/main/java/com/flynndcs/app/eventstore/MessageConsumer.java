@@ -1,7 +1,7 @@
-package net.openhft.chronicle.queue.simple.input;
+package com.flynndcs.app.eventstore;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import net.openhft.chronicle.queue.simple.input.dto.CommandDTO;
+import com.flynndcs.app.dto.CommandDTO;
 
 import java.sql.SQLException;
 

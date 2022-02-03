@@ -1,8 +1,12 @@
-package net.openhft.chronicle.queue.simple.input;
+package com.flynndcs.app;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
+import com.flynndcs.app.contexts.ItemHandler;
+import com.flynndcs.app.dto.CommandDTO;
+import com.flynndcs.app.eventstore.ItemEventListener;
+import com.flynndcs.app.state.ChronicleMapPersister;
 import io.micrometer.core.instrument.binder.jvm.JvmGcMetrics;
 import io.micrometer.core.instrument.binder.jvm.JvmMemoryMetrics;
 import io.micrometer.prometheus.PrometheusConfig;
@@ -12,8 +16,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import net.openhft.chronicle.core.values.LongValue;
 import net.openhft.chronicle.map.ChronicleMap;
 import net.openhft.chronicle.map.ChronicleMapBuilder;
-import net.openhft.chronicle.queue.simple.input.dto.CommandDTO;
-import net.openhft.chronicle.queue.simple.input.http.QueryHandler;
+import net.openhft.chronicle.queue.simple.input.CommandPersister;
 import net.openhft.chronicle.values.Values;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.Server;
@@ -25,78 +28,97 @@ import org.eclipse.jetty.util.thread.QueuedThreadPool;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.DriverManager;
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
- * Process implementing read model for queries to items application.
+ * Entry point class.
  *
  * @author Daniel Flynn (dflynn)
  */
-public class QueryProcess {
+public class App {
   private static final PrometheusMeterRegistry metrics =
       new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
-  private static final String UPSERT = "upsert";
   private static final String REPLAY_TIME_MESSAGE = " micros elapsed while replaying commands";
   private static final String REPLAY_COUNT_MESSAGE = " commands replayed";
   private static final String AGGREGATES_PRESENT = " aggregates present";
   private static final String SERVER_START_MESSAGE = "query server started at ";
   private static String metricsString;
-  private static final ThreadLocal<CharSequence> eventJson =
-      ThreadLocal.withInitial(() -> Values.newHeapInstance(CharSequence.class));
   private static final LongValue longValue = Values.newHeapInstance(LongValue.class);
+  private static ChronicleMap<LongValue, CharSequence> valuesMap;
+  private static ChronicleMap<ByteBuffer, Boolean> eventsMap;
+  private static final ScheduledExecutorService executor = Executors.newScheduledThreadPool(2);
+  private static CommandPersister PERSISTER;
 
+  static {
+    try {
+      valuesMap =
+          ChronicleMapBuilder.of(LongValue.class, CharSequence.class)
+              .name("value-map")
+              .entries(1000000L)
+              .averageValue("value")
+              .createPersistedTo(new File("./values.dat"));
+      eventsMap =
+          ChronicleMapBuilder.of(ByteBuffer.class, boolean.class)
+              .name("value-map")
+              .entries(1000000L)
+              .averageValue(true)
+              .createPersistedTo(new File("./events.dat"));
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+  }
+
+  private static final ItemHandler ITEM_HANDLER = new ItemHandler(valuesMap, metrics);
+
+  private static ItemEventListener EVENT_LISTENER;
   private static String HOSTNAME = "localhost";
   private static String DB_HOSTNAME = "localhost";
   private static final String pgUser = "postgres";
   private static final String pgPass = "postgres";
-  private static final int PORT = 8089;
+  private static final int PORT = 8088;
 
   private static final ThreadLocal<CommandDTO> COMMAND_DTO =
       ThreadLocal.withInitial(() -> Values.newHeapInstance(CommandDTO.class));
-  private static QueryHandler QUERY_HANDLER;
 
   private static final ObjectReader READER = new ObjectMapper().readerFor(CommandDTO.class);
 
   public static void main(String[] args) throws Exception {
-    replayCommandsFromEventStore(args);
-    startServer(getServer());
-  }
-
-  private static void replayCommandsFromEventStore(String[] args) throws SQLException, IOException {
     if (args.length > 0 && args[0] != null) {
       DB_HOSTNAME = args[0];
     }
     if (args.length > 1 && args[1] != null) {
       HOSTNAME = args[1];
     }
-    String pgUrl = "jdbc:postgresql://" + DB_HOSTNAME + ":5432/postgres";
-    Connection connection = DriverManager.getConnection(pgUrl, pgUser, pgPass);
+    PERSISTER = new CommandPersister(DB_HOSTNAME);
+    EVENT_LISTENER = new ItemEventListener(DB_HOSTNAME, valuesMap, eventsMap, metrics);
+    replayCommandsFromEventStore();
+    startServer(getServer());
+  }
+
+  private static void replayCommandsFromEventStore() throws SQLException {
+    Connection connection =
+        DriverManager.getConnection(
+            "jdbc:postgresql://" + DB_HOSTNAME + ":5432/postgres", pgUser, pgPass);
     long NANOS_START = System.nanoTime();
     int commandsReplayed = 0;
+    System.out.println("Connected to Postgres at: " + DB_HOSTNAME + ":5432");
 
-    ChronicleMap<LongValue, CharSequence> valuesMap =
-        ChronicleMapBuilder.of(LongValue.class, CharSequence.class)
-            .name("value-map")
-            .entries(1000000L)
-            .averageValue("value")
-            .createPersistedTo(new File("./map.dat"));
-    QUERY_HANDLER = new QueryHandler(valuesMap, metrics);
-
-    // replay commands from event store
-    PreparedStatement statement =
-        connection.prepareStatement("SELECT * FROM event ORDER BY written_at DESC");
-    ResultSet rs = statement.executeQuery();
-    int eventColumn = rs.findColumn("event");
+    ResultSet rs =
+        connection.prepareStatement("SELECT * FROM event ORDER BY written_at DESC").executeQuery();
     while (rs.next()) {
-      eventJson.set(rs.getString(eventColumn));
       try {
-        COMMAND_DTO.set(READER.readValue(eventJson.get().toString()));
-        handleCommand(valuesMap);
+        COMMAND_DTO.set(READER.readValue(rs.getString(rs.findColumn("event"))));
+        longValue.setValue(COMMAND_DTO.get().getId());
+        ChronicleMapPersister.persistToValuesMap(
+            longValue, READER.readValue(rs.getString(rs.findColumn("event"))), valuesMap);
         commandsReplayed++;
       } catch (JsonProcessingException e) {
         e.printStackTrace();
@@ -131,20 +153,26 @@ public class QueryProcess {
     ContextHandler context = new ContextHandler("/item");
     context.setContextPath("/item");
     context.setAllowNullPathInfo(true);
-    context.setHandler(QUERY_HANDLER);
+    context.setHandler(ITEM_HANDLER);
 
     new JvmGcMetrics().bindTo(metrics);
     new JvmMemoryMetrics().bindTo(metrics);
 
     ContextHandlerCollection contexts = new ContextHandlerCollection(metricsContext, context);
     server.setHandler(contexts);
+
+    executor.scheduleAtFixedRate(PERSISTER, 20, 5, TimeUnit.SECONDS);
+//    executor.scheduleAtFixedRate(EVENT_LISTENER, 20, 5, TimeUnit.SECONDS);
+
     server.start();
+
     System.out.println(SERVER_START_MESSAGE + HOSTNAME + ":" + PORT);
+
     server.join();
   }
 
   private static Server getServer() {
-    QueuedThreadPool pool = new QueuedThreadPool(64);
+    QueuedThreadPool pool = new QueuedThreadPool(128);
     pool.setDetailedDump(true);
     Server server = new Server(pool);
     ServerConnector connector = new ServerConnector(server);
@@ -153,16 +181,5 @@ public class QueryProcess {
     connector.setAcceptQueueSize(1024);
     server.addConnector(connector);
     return server;
-  }
-
-  private static void handleCommand(ChronicleMap<LongValue, CharSequence> valuesMap) {
-    // business logic here, placed into in-memory data structure
-    // command -> data to be read
-    if (UPSERT.equalsIgnoreCase(COMMAND_DTO.get().getAction())) {
-      longValue.setValue(COMMAND_DTO.get().getId());
-      valuesMap.put(longValue, COMMAND_DTO.get().getValue());
-    } else {
-      valuesMap.remove(longValue);
-    }
   }
 }

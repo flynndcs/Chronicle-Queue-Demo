@@ -1,13 +1,7 @@
-package net.openhft.chronicle.queue.simple.input.dto;
+package com.flynndcs.app.dto;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import net.openhft.chronicle.queue.simple.input.http.CommandHandler;
-import net.openhft.chronicle.wire.Marshallable;
 import net.openhft.chronicle.wire.SelfDescribingMarshallable;
-import net.openhft.chronicle.wire.WireIn;
-import net.openhft.chronicle.wire.WireOut;
-
-import java.util.UUID;
 
 public class CommandDTO extends SelfDescribingMarshallable {
   @JsonProperty("action")

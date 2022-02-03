@@ -47,6 +47,7 @@ local.properties
 .settings/
 .loadpath
 
-### Queue files
+### Queue and files
+queue/
 *.cq4t
 *.cq4

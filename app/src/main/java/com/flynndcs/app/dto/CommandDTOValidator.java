@@ -1,4 +1,4 @@
-package net.openhft.chronicle.queue.simple.input.dto;
+package com.flynndcs.app.dto;
 
 import java.util.Arrays;
 

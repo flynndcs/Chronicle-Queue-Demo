@@ -6,5 +6,3 @@ CREATE TABLE IF NOT EXISTS event (
     written_at BIGINT,
     PRIMARY KEY (event_id)
 );
-
-INSERT INTO event (event, written_at) VALUES ('{"action": "upsert", "id": 0, "value": "value"}', 0);

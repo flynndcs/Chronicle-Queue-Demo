@@ -1,4 +1,2 @@
 - disable userland proxy
-- restart docker
-- define postgres-event persistent event volume 
-- 
+- define external postgres-event persistent event volume 

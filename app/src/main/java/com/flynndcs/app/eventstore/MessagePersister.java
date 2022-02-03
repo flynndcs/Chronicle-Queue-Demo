@@ -1,8 +1,9 @@
-package net.openhft.chronicle.queue.simple.input;
+package com.flynndcs.app.eventstore;
 
+import com.datastax.oss.driver.api.core.uuid.Uuids;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectWriter;
-import net.openhft.chronicle.queue.simple.input.dto.CommandDTO;
+import com.flynndcs.app.dto.CommandDTO;
 
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -20,8 +21,9 @@ public class MessagePersister implements MessageConsumer {
 
   @Override
   public void onCommand(CommandDTO dto) throws JsonProcessingException, SQLException {
-    statement.setString(1, writer.writeValueAsString(dto));
-    statement.setLong(2, ChronoUnit.MICROS.between(Instant.EPOCH, Instant.now()));
+    statement.setObject(1, Uuids.timeBased());
+    statement.setString(2, writer.writeValueAsString(dto));
+    statement.setLong(3, ChronoUnit.MICROS.between(Instant.EPOCH, Instant.now()));
     statement.executeUpdate();
   }
 }
