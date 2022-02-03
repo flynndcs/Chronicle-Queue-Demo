@@ -19,35 +19,17 @@ public class CommandDTO extends SelfDescribingMarshallable {
   @JsonProperty("value")
   private String value;
 
-  public CommandDTO(String action, long id, String value) {
-    this.action = action;
-    this.id = id;
-    this.value = value;
-  }
-
   public CommandDTO() {}
 
   public String getAction() {
     return this.action;
   }
 
-  public void setAction(String action) {
-    this.action = action;
-  }
-
   public long getId() {
     return this.id;
   }
 
-  public void setId(long id) {
-    this.id = id;
-  }
-
   public String getValue() {
     return this.value;
-  }
-
-  public void setValue(String value) {
-    this.value = value;
   }
 }

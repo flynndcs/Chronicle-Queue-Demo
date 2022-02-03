@@ -1,83 +1,76 @@
 package net.openhft.chronicle.queue.simple.input.http;
 
-import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.prometheus.PrometheusMeterRegistry;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import net.openhft.chronicle.core.values.LongValue;
 import net.openhft.chronicle.map.ChronicleMap;
 import net.openhft.chronicle.values.Values;
+import org.eclipse.jetty.server.Request;
+import org.eclipse.jetty.server.handler.AbstractHandler;
 
 import java.io.IOException;
-import java.net.URI;
-import java.sql.Connection;
-import java.util.HashMap;
-import java.util.Map;
+import java.time.Duration;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
-
-public class QueryHandler implements HttpHandler {
-  private final ChronicleMap<LongValue, CharSequence> VALUE_MAP;
-  private static long NANOS_START = 0;
-  private static String QUERY_RESPONSE = "";
-  private static final Map<String, String> QUERY_PARAM_MAP = new HashMap<>();
-  private static String[] NAME_VALUE_PAIRS = new String[2];
-  private static String NAME = "";
-  private static String VALUE = "";
+public class QueryHandler extends AbstractHandler {
+  private static ChronicleMap<LongValue, CharSequence> VALUE_MAP;
   private static final LongValue longValue = Values.newHeapInstance(LongValue.class);
-  private static final StringBuilder SB = new StringBuilder();
 
   private static final String UNSUPPORTED_HTTP_MESSAGE = "Unsupported HTTP action.";
-  private static final String QUERY_RESULT = "Query result:";
   private static final String NO_QUERY_RESULT = "No result for query.";
-  private static final String MICROS_ELAPSED = "Micros elapsed: ";
+  private static Timer TIMER;
 
-  public QueryHandler(ChronicleMap<LongValue, CharSequence> valueMap) {
-    this.VALUE_MAP = valueMap;
+  public QueryHandler(
+      ChronicleMap<LongValue, CharSequence> valueMap, PrometheusMeterRegistry metrics) {
+    VALUE_MAP = valueMap;
+    TIMER =
+        Timer.builder("query_hist")
+            .publishPercentiles(0.5, 0.9, 0.99)
+            .publishPercentileHistogram()
+            .minimumExpectedValue(Duration.ofNanos(1000))
+            .maximumExpectedValue(Duration.ofSeconds(2))
+            .register(metrics);
   }
 
   @Override
-  public void handle(HttpExchange exchange) throws IOException {
-    NANOS_START = System.nanoTime();
-    QUERY_RESPONSE = tryHandleGet(exchange);
-    SB.setLength(0);
-    respond(exchange, QUERY_RESPONSE, NANOS_START);
+  public void handle(
+      String s, Request baseRequest, HttpServletRequest request, HttpServletResponse response)
+      throws IOException {
+    baseRequest.setHandled(true);
+    respond(response, tryHandleGet(request));
   }
 
-  private String tryHandleGet(HttpExchange exchange) {
-    if ("GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-      return handleGet(exchange.getRequestURI());
+  private String tryHandleGet(HttpServletRequest request) {
+    if ("GET".equalsIgnoreCase(request.getMethod())) {
+      return TIMER.record(() -> handleGet(request.getQueryString()));
     } else {
       System.err.println(UNSUPPORTED_HTTP_MESSAGE);
       return null;
     }
   }
 
-  private String handleGet(URI uri) {
-    NAME_VALUE_PAIRS = uri.getQuery().split("&");
-    for (String param : NAME_VALUE_PAIRS) {
-      NAME = param.split("=")[0];
-      VALUE = param.split("=")[1];
-      QUERY_PARAM_MAP.put(NAME, VALUE);
-    }
-    longValue.setValue(Long.parseLong(QUERY_PARAM_MAP.get("id")));
+  private String handleGet(String queryParams) {
+    longValue.setValue(Long.parseLong((queryParams.split("&")[0].split("=")[1])));
+    StringBuilder SB = new StringBuilder();
     VALUE_MAP.getUsing(longValue, SB);
-    return SB.toString();
+    if (!SB.toString().isEmpty()) {
+      return SB.toString();
+    } else {
+      return null;
+    }
   }
 
-  private void respond(HttpExchange exchange, String queryResponse, long nanos) throws IOException {
-    if (!queryResponse.equalsIgnoreCase("")) {
-      exchange.sendResponseHeaders(200, SB.length());
-      SB.append(QUERY_RESULT);
-      SB.append(System.lineSeparator());
-      SB.append(queryResponse);
-      SB.append(System.lineSeparator());
+  private void respond(HttpServletResponse response, String queryResponse) throws IOException {
+    response.setContentType("text/plain; charset=utf-8");
+    response.setCharacterEncoding("UTF-8");
+    if (queryResponse != null) {
+      response.setStatus(200);
     } else {
-      SB.append(NO_QUERY_RESULT);
-      SB.append(System.lineSeparator());
-      exchange.sendResponseHeaders(400, SB.length());
+      queryResponse = NO_QUERY_RESULT;
+      response.setStatus(400);
     }
-    exchange.getResponseBody().write(SB.toString().getBytes(UTF_8));
-    System.out.println(MICROS_ELAPSED + ((System.nanoTime() - nanos) / 1000));
-    exchange.getResponseBody().close();
-    SB.setLength(0);
+    response.getWriter().print(queryResponse);
+    response.getWriter().flush();
   }
 }

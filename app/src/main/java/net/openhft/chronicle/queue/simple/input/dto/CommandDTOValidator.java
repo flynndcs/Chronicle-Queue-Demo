@@ -1,11 +1,9 @@
-package net.openhft.chronicle.queue.simple.input.domain;
-
-import net.openhft.chronicle.queue.simple.input.dto.CommandDTO;
+package net.openhft.chronicle.queue.simple.input.dto;
 
 import java.util.Arrays;
 
-public class CommandValidator {
-  private static final String[] VALID_ACTIONS = {Command.UPSERT, Command.DELETE};
+public class CommandDTOValidator {
+  private static final String[] VALID_ACTIONS = {"UPSERT", "DELETE"};
 
   public static boolean isValid(CommandDTO dto) {
     if (Arrays.stream(VALID_ACTIONS).noneMatch(valid -> valid.equalsIgnoreCase(dto.getAction()))) {

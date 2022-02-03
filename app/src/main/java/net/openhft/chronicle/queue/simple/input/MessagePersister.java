@@ -19,7 +19,7 @@ public class MessagePersister implements MessageConsumer {
   }
 
   @Override
-  public void onMessage(CommandDTO dto) throws JsonProcessingException, SQLException {
+  public void onCommand(CommandDTO dto) throws JsonProcessingException, SQLException {
     statement.setString(1, writer.writeValueAsString(dto));
     statement.setLong(2, ChronoUnit.MICROS.between(Instant.EPOCH, Instant.now()));
     statement.executeUpdate();

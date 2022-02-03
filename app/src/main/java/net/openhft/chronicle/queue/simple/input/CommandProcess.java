@@ -1,5 +1,7 @@
 package net.openhft.chronicle.queue.simple.input;
 
+import io.micrometer.core.instrument.binder.jvm.JvmGcMetrics;
+import io.micrometer.core.instrument.binder.jvm.JvmMemoryMetrics;
 import io.micrometer.prometheus.PrometheusConfig;
 import io.micrometer.prometheus.PrometheusMeterRegistry;
 import jakarta.servlet.http.HttpServletRequest;
@@ -59,7 +61,6 @@ public class CommandProcess {
   }
 
   public static void main(String[] args) throws Exception {
-
     startServer(createServer(args));
   }
 
@@ -75,7 +76,7 @@ public class CommandProcess {
     pgUrl = "jdbc:postgresql://" + DB_HOSTNAME + ":5432/postgres";
     connection = DriverManager.getConnection(pgUrl, pgUser, pgPass);
 
-    QueuedThreadPool pool = new QueuedThreadPool(512);
+    QueuedThreadPool pool = new QueuedThreadPool(64);
     pool.setDetailedDump(true);
     Server server = new Server(pool);
     ServerConnector connector = new ServerConnector(server);
@@ -111,6 +112,9 @@ public class CommandProcess {
     context.setContextPath("/item");
     context.setAllowNullPathInfo(true);
     context.setHandler(new CommandHandler(map, metrics));
+
+    new JvmGcMetrics().bindTo(metrics);
+    new JvmMemoryMetrics().bindTo(metrics);
 
     ContextHandlerCollection contexts = new ContextHandlerCollection(metricsContext, context);
     server.setHandler(contexts);

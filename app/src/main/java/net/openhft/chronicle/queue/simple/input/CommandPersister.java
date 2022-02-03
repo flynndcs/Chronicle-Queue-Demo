@@ -29,7 +29,7 @@ public class CommandPersister {
   private static PreparedStatement statement;
   private static final ObjectWriter WRITER = new ObjectMapper().writerFor(CommandDTO.class);
 
-  public static void main(String[] args) throws SQLException{
+  public static void main(String[] args) throws SQLException {
     if (args.length > 0 && args[0] != null) {
       DB_HOSTNAME = args[0];
     }
@@ -43,9 +43,7 @@ public class CommandPersister {
     persister = new MessagePersister(statement, WRITER);
     reader = queue.createTailer().methodReader(persister);
     while (true) {
-      if (reader.readOne()) {
-        System.out.println("event persisted");
-      } else {
+      if (!reader.readOne()) {
         Jvm.pause(50);
       }
     }
