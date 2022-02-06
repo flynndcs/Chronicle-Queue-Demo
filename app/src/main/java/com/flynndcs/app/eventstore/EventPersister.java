@@ -5,21 +5,24 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import com.flynndcs.app.dto.CommandDTO;
 
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 
-public class EventPersister implements MessageConsumer {
-  private static PreparedStatement readAggregateStatement;
-  private static PreparedStatement updateAggregateStatement;
-  private static PreparedStatement insertEventStatement;
-  private static PreparedStatement insertAggregateStatement;
-  private static Connection connection;
-  private static ResultSet rs;
-  private static ObjectWriter writer;
+public class EventPersister {
+  private PreparedStatement readAggregateStatement;
+  private PreparedStatement updateAggregateStatement;
+  private PreparedStatement insertEventStatement;
+  private PreparedStatement insertAggregateStatement;
+  private Connection connection;
+  private ResultSet rs;
+  private ObjectWriter writer;
 
-  public EventPersister(Connection dbConnection, ObjectWriter objWriter) {
-    connection = dbConnection;
+  public EventPersister(String dbHost, ObjectWriter objWriter) throws SQLException {
+    connection =
+        DriverManager.getConnection(
+            "jdbc:postgresql://" + dbHost + ":5432/postgres", "postgres", "postgres");
     try {
       readAggregateStatement =
           connection.prepareStatement(
@@ -39,8 +42,7 @@ public class EventPersister implements MessageConsumer {
     writer = objWriter;
   }
 
-  @Override
-  public void onCommand(CommandDTO dto) throws SQLException {
+  public boolean onCommand(CommandDTO dto) throws SQLException {
     readAggregateStatement.setObject(1, dto.getId());
     rs = readAggregateStatement.executeQuery();
     int currentVersion;
@@ -53,6 +55,13 @@ public class EventPersister implements MessageConsumer {
       updateAggregateStatement.setInt(2, currentVersion);
       if (updateAggregateStatement.executeUpdate() == 0) {
         connection.rollback();
+        System.out.println(
+            "persisting to event store for "
+                + dto.getAction()
+                + " "
+                + dto.getQuantity()
+                + " failed. rolling back transaction.");
+        return false;
       }
     } else {
       connection.setAutoCommit(false);
@@ -75,9 +84,10 @@ public class EventPersister implements MessageConsumer {
               + " "
               + dto.getQuantity()
               + " failed. rolling back transaction.");
+      return false;
     }
     connection.commit();
-    System.out.println("committed records to event store.");
     connection.setAutoCommit(true);
+    return true;
   }
 }

@@ -19,7 +19,7 @@ public class EventShardListenerThread implements Runnable {
   private static long poolSize;
   private ThreadLocal<Long> latestSequenceId = ThreadLocal.withInitial(() -> 0L);
   private final ThreadLocal<PreparedStatement> readStatement;
-  private static ThreadLocal<Timer> timer;
+  private ThreadLocal<Timer> timer;
   private ThreadLocal<CommandDTO> COMMAND_DTO_EVENT = ThreadLocal.withInitial(CommandDTO::new);
   private static ChronicleMap<Long, Long> counts;
 
@@ -31,7 +31,8 @@ public class EventShardListenerThread implements Runnable {
       PrometheusMeterRegistry metricsRegistry,
       ObjectReader reader,
       ChronicleMap<Long, Long> countsMap,
-      String dbHost) throws SQLException {
+      String dbHost)
+      throws SQLException {
     poolSize = numThreads;
     index = ThreadLocal.withInitial(() -> threadIndex);
     timer =
@@ -45,7 +46,8 @@ public class EventShardListenerThread implements Runnable {
                     .register(metricsRegistry));
     READER = reader;
     counts = countsMap;
-    Connection connection = DriverManager.getConnection(
+    Connection connection =
+        DriverManager.getConnection(
             "jdbc:postgresql://" + dbHost + ":5432/postgres", "postgres", "postgres");
     readStatement =
         ThreadLocal.withInitial(
@@ -78,14 +80,9 @@ public class EventShardListenerThread implements Runnable {
                           COMMAND_DTO_EVENT.set(
                               READER.readValue(resultSet.getString(resultSet.findColumn("data"))));
                           ChronicleMapPersister.persistToCountsMap(
-                              COMMAND_DTO_EVENT.get().getId(), COMMAND_DTO_EVENT.get(), counts);
+                              COMMAND_DTO_EVENT.get(), counts);
                           latestSequenceId.set(
                               resultSet.getLong(resultSet.findColumn("event_sequence_id")));
-                          System.out.println(
-                              "update state for "
-                                  + COMMAND_DTO_EVENT.get().getId()
-                                  + " from event store, event id: "
-                                  + resultSet.getLong(resultSet.findColumn("event_sequence_id")));
                         } catch (SQLException | JsonProcessingException ex) {
                           ex.printStackTrace();
                         }

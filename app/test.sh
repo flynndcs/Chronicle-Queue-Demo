@@ -1,6 +1,6 @@
 #!/usr/bin/bash
 
-count=10
+count=100
 ids=($(shuf -i 0-1000 -n $count))
 
 for id in "${ids[@]}"; do
@@ -13,7 +13,7 @@ parallelCurl(){
 
 
 for id in "${ids[@]}"; do
-  parallelCurl $id &
+  time parallelCurl $id &
 done
 
-exit
+exit $?

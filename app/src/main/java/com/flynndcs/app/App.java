@@ -1,7 +1,7 @@
 package com.flynndcs.app;
 
 import com.flynndcs.app.contexts.TenantHandler;
-import com.flynndcs.app.eventstore.CommandPersister;
+import com.flynndcs.app.eventstore.CommandPersisterGroup;
 import com.flynndcs.app.state.EventListenerGroup;
 import io.micrometer.core.instrument.binder.jvm.JvmGcMetrics;
 import io.micrometer.core.instrument.binder.jvm.JvmMemoryMetrics;
@@ -23,8 +23,6 @@ import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
-import java.sql.DriverManager;
 
 import static net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder.binary;
 
@@ -63,12 +61,11 @@ public class App {
     PrometheusMeterRegistry metrics = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
     SingleChronicleQueue queue = binary("queue").build();
 
-    EventListenerGroup listenerGroup = new EventListenerGroup(DB_HOSTNAME, countsMap, 10, metrics);
+    EventListenerGroup listenerGroup = new EventListenerGroup(DB_HOSTNAME, countsMap, 8, metrics);
     listenerGroup.start();
 
-    CommandPersister persister = new CommandPersister(DB_HOSTNAME, queue);
-    Thread persisterThread = new Thread(persister);
-    persisterThread.start();
+    CommandPersisterGroup persisterGroup = new CommandPersisterGroup(DB_HOSTNAME, 32, queue);
+    persisterGroup.start();
 
     startServer(getServer(), countsMap, queue, metrics);
   }

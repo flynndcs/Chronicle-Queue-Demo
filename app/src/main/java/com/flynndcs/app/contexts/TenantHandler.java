@@ -2,7 +2,6 @@ package com.flynndcs.app.contexts;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
-import com.flynndcs.app.eventstore.MessageConsumer;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.prometheus.PrometheusMeterRegistry;
 import jakarta.servlet.http.HttpServletRequest;
@@ -10,13 +9,13 @@ import jakarta.servlet.http.HttpServletResponse;
 import net.openhft.chronicle.map.ChronicleMap;
 import com.flynndcs.app.dto.CommandDTO;
 import com.flynndcs.app.dto.CommandDTOValidator;
+import net.openhft.chronicle.queue.ExcerptAppender;
 import net.openhft.chronicle.queue.impl.single.SingleChronicleQueue;
 import net.openhft.chronicle.values.Values;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.AbstractHandler;
 
 import java.io.IOException;
-import java.sql.SQLException;
 import java.time.Duration;
 
 public class TenantHandler extends AbstractHandler {
@@ -25,7 +24,7 @@ public class TenantHandler extends AbstractHandler {
   private static final ThreadLocal<CommandDTO> commandDto =
       ThreadLocal.withInitial(() -> Values.newHeapInstance(CommandDTO.class));
   private static final ObjectReader READER = new ObjectMapper().readerFor(CommandDTO.class);
-  private static MessageConsumer SENDER;
+  private static ThreadLocal<ExcerptAppender> APPENDER;
 
   private static final String UNSUPPORTED_HTTP_MESSAGE = "Unsupported HTTP action.";
   private static Timer GET_TIMER;
@@ -33,7 +32,7 @@ public class TenantHandler extends AbstractHandler {
 
   public TenantHandler(
       ChronicleMap<Long, Long> map, PrometheusMeterRegistry metrics, SingleChronicleQueue queue) {
-    SENDER = queue.acquireAppender().methodWriter(MessageConsumer.class);
+    APPENDER = ThreadLocal.withInitial(queue::acquireAppender);
     countsMap = map;
     GET_TIMER =
         Timer.builder("query")
@@ -85,13 +84,12 @@ public class TenantHandler extends AbstractHandler {
     try {
       commandDto.set(READER.readValue(request.getInputStream(), CommandDTO.class));
       if (CommandDTOValidator.isValid(commandDto.get())) {
-        // async call through SENDER's queue to event persister to be persisted in event store
-        SENDER.onCommand(commandDto.get());
+        APPENDER.get().writeDocument(commandDto.get());
         return "Command received" + System.lineSeparator();
       } else {
         return "Command not received" + System.lineSeparator();
       }
-    } catch (SQLException | IOException e) {
+    } catch (IOException e) {
       e.printStackTrace();
       return "Command not received";
     }
