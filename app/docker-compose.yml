@@ -7,8 +7,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    volumes:
-      - ./jetty/threadpool.mod:/usr/local/jetty/modules/threadpool.mod
 
   db:
     image: postgres:14.1
@@ -23,30 +21,24 @@ services:
     ports:
       - '5432:5432'
     volumes:
-      - postgres-event:/var/lib/postgresql/data
       - ./postgres/postgres.conf:/usr/local/etc/postgres/postgres.conf
       # copy the sql script to create tables
       - ./sql/create_tables.sql:/docker-entrypoint-initdb.d/create_tables.sql
     command: "postgres -c config_file=/usr/local/etc/postgres/postgres.conf"
     healthcheck:
-      test: ["CMD-SHELL","pg_isready -U postgres"]
+      test: [ "CMD-SHELL","pg_isready -U postgres" ]
       interval: 5s
       timeout: 5s
       retries: 5
 
   prometheus:
-      image: prom/prometheus
-      restart: always
-      volumes:
-        - ./prometheus/:/etc/prometheus
-        - prometheus_data:/prometheus
-      command:
-        - '--config.file=/etc/prometheus/prometheus.yml'
-        - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-        - '--web.console.templates=/usr/share/prometheus/consoles'
-      ports:
-        - '9090:9090'
-volumes:
-  prometheus_data: {}
-  postgres-event:
-    external: true
+    image: prom/prometheus
+    restart: always
+    volumes:
+      - ./prometheus/:/etc/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    ports:
+      - '9090:9090'

@@ -4,14 +4,14 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import net.openhft.chronicle.wire.SelfDescribingMarshallable;
 
 public class CommandDTO extends SelfDescribingMarshallable {
+  @JsonProperty("id")
+  private Long id;
+
   @JsonProperty("action")
   private String action;
 
-  @JsonProperty("id")
-  private long id;
-
-  @JsonProperty("value")
-  private String value;
+  @JsonProperty("quantity")
+  private Long quantity;
 
   public CommandDTO() {}
 
@@ -19,11 +19,11 @@ public class CommandDTO extends SelfDescribingMarshallable {
     return this.action;
   }
 
-  public long getId() {
+  public Long getId() {
     return this.id;
   }
 
-  public String getValue() {
-    return this.value;
+  public Long getQuantity() {
+    return this.quantity;
   }
 }

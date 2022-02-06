@@ -2,16 +2,15 @@ package com.flynndcs.app.contexts;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
+import com.flynndcs.app.eventstore.MessageConsumer;
 import io.micrometer.core.instrument.Timer;
 import io.micrometer.prometheus.PrometheusMeterRegistry;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import net.openhft.chronicle.core.values.LongValue;
 import net.openhft.chronicle.map.ChronicleMap;
-import com.flynndcs.app.state.ChronicleMapPersister;
-import com.flynndcs.app.eventstore.MessageConsumer;
 import com.flynndcs.app.dto.CommandDTO;
 import com.flynndcs.app.dto.CommandDTOValidator;
+import net.openhft.chronicle.queue.impl.single.SingleChronicleQueue;
 import net.openhft.chronicle.values.Values;
 import org.eclipse.jetty.server.Request;
 import org.eclipse.jetty.server.handler.AbstractHandler;
@@ -20,25 +19,22 @@ import java.io.IOException;
 import java.sql.SQLException;
 import java.time.Duration;
 
-import static net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilder.binary;
-
-public class ItemHandler extends AbstractHandler {
-  private static ChronicleMap<LongValue, CharSequence> valueMap;
-  private static final LongValue longValue = Values.newHeapInstance(LongValue.class);
+public class TenantHandler extends AbstractHandler {
+  private static ChronicleMap<Long, Long> countsMap;
+  private static final ThreadLocal<Long> longValue = ThreadLocal.withInitial(() -> 0L);
   private static final ThreadLocal<CommandDTO> commandDto =
       ThreadLocal.withInitial(() -> Values.newHeapInstance(CommandDTO.class));
   private static final ObjectReader READER = new ObjectMapper().readerFor(CommandDTO.class);
-  private static final LongValue key = Values.newHeapInstance(LongValue.class);
   private static MessageConsumer SENDER;
 
   private static final String UNSUPPORTED_HTTP_MESSAGE = "Unsupported HTTP action.";
   private static Timer GET_TIMER;
   private static Timer POST_TIMER;
 
-  public ItemHandler(
-      ChronicleMap<LongValue, CharSequence> valueMap, PrometheusMeterRegistry metrics) {
-    ItemHandler.valueMap = valueMap;
-    SENDER = binary("queue").build().acquireAppender().methodWriter(MessageConsumer.class);
+  public TenantHandler(
+      ChronicleMap<Long, Long> map, PrometheusMeterRegistry metrics, SingleChronicleQueue queue) {
+    SENDER = queue.acquireAppender().methodWriter(MessageConsumer.class);
+    countsMap = map;
     GET_TIMER =
         Timer.builder("query")
             .publishPercentiles(0.5, 0.9, 0.99)
@@ -75,13 +71,13 @@ public class ItemHandler extends AbstractHandler {
   }
 
   private String handleGet(String queryParams) {
-    longValue.setValue(Long.parseLong((queryParams.split("&")[0].split("=")[1])));
-    StringBuilder SB = new StringBuilder();
-    valueMap.getUsing(longValue, SB);
-    if (!SB.toString().isEmpty()) {
-      return SB.toString();
+    longValue.set(
+        countsMap.getUsing(
+            Long.parseLong(queryParams.split("&")[0].split("=")[1]), longValue.get()));
+    if (longValue.get() != null) {
+      return longValue.get().toString() + System.lineSeparator();
     } else {
-      return "Value not found.";
+      return "Count not found: " + longValue.get() + System.lineSeparator();
     }
   }
 
@@ -89,14 +85,13 @@ public class ItemHandler extends AbstractHandler {
     try {
       commandDto.set(READER.readValue(request.getInputStream(), CommandDTO.class));
       if (CommandDTOValidator.isValid(commandDto.get())) {
-        key.setValue(commandDto.get().getId());
-        ChronicleMapPersister.persistToValuesMap(key, commandDto.get(), valueMap);
+        // async call through SENDER's queue to event persister to be persisted in event store
         SENDER.onCommand(commandDto.get());
-        return "Command received";
+        return "Command received" + System.lineSeparator();
       } else {
-        return "Command not received";
+        return "Command not received" + System.lineSeparator();
       }
-    } catch (IOException | SQLException e) {
+    } catch (SQLException | IOException e) {
       e.printStackTrace();
       return "Command not received";
     }
