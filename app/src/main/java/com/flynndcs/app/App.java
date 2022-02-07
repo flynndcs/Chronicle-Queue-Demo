@@ -32,24 +32,11 @@ import static net.openhft.chronicle.queue.impl.single.SingleChronicleQueueBuilde
  * @author Daniel Flynn (dflynn)
  */
 public class App {
-  private static final String SERVER_START_MESSAGE = "query server started at ";
+  private static final String SERVER_START_MESSAGE = "server started at ";
   private static String metricsString;
   private static String HOSTNAME = "localhost";
   private static String DB_HOSTNAME = "localhost";
   private static final int PORT = 8088;
-  private static ChronicleMap<Long, Long> countsMap;
-
-  static {
-    try {
-      countsMap =
-          ChronicleMapBuilder.of(Long.class, Long.class)
-              .name("value-map")
-              .entries(1000000L)
-              .createPersistedTo(new File("./values.dat"));
-    } catch (IOException e) {
-      e.printStackTrace();
-    }
-  }
 
   public static void main(String[] args) throws Exception {
     if (args.length > 0 && args[0] != null) {
@@ -59,14 +46,28 @@ public class App {
       HOSTNAME = args[1];
     }
     PrometheusMeterRegistry metrics = new PrometheusMeterRegistry(PrometheusConfig.DEFAULT);
-    SingleChronicleQueue queue = binary("queue").build();
 
+    // application state
+    ChronicleMap<Long, Long> countsMap =
+        ChronicleMapBuilder.of(Long.class, Long.class)
+            .name("value-map")
+            .entries(1000000L)
+            .createPersistedTo(new File("./values.dat"));
+    // memory mapped file on disk
+
+    // 8 threads that poll the event store for new updates
     EventListenerGroup listenerGroup = new EventListenerGroup(DB_HOSTNAME, countsMap, 8, metrics);
     listenerGroup.start();
 
+    // a memory mapped file that acts as a queue that sends commands to the persister threads
+    SingleChronicleQueue queue = binary("queue").build();
+
+    // 32 threads that (from the queue) grab new events derived from the POST commands to the event
+    // store
     CommandPersisterGroup persisterGroup = new CommandPersisterGroup(DB_HOSTNAME, 32, queue);
     persisterGroup.start();
 
+    // jetty server to handle GET queries/ POST commands and metrics
     startServer(getServer(), countsMap, queue, metrics);
   }
 

@@ -10,7 +10,6 @@ import java.util.Objects;
 public class CommandPersisterThread implements Runnable {
   private static long poolSize;
   private ThreadLocal<Long> index;
-  private ThreadLocal<Boolean> printed = ThreadLocal.withInitial(() -> false);
   private ThreadLocal<ExcerptTailer> tailer;
   private ThreadLocal<EventPersister> persister;
   private ThreadLocal<CommandDTO> dto;
@@ -20,6 +19,7 @@ public class CommandPersisterThread implements Runnable {
       long threadIndex,
       EventPersister eventPersister,
       ExcerptTailer excerptTailer) {
+    // create thread local variables since events are sharded across the pool of command persisters
     poolSize = numThreads;
     index = ThreadLocal.withInitial(() -> threadIndex);
     persister = ThreadLocal.withInitial(() -> eventPersister);
@@ -30,12 +30,15 @@ public class CommandPersisterThread implements Runnable {
   @Override
   public void run() {
     while (true) {
-      printed.set(false);
       while (true) {
+        // try to read from queue
         try (final DocumentContext dc = tailer.get().readingDocument()) {
           if (dc.isPresent()) {
+            // read the document in the queue into the thread local dto object
             dto.get().readMarshallable(Objects.requireNonNull(dc.wire()));
+            // if this dto's id partitions into our bucket, persist it to the event store
             if (dto.get().getId() % poolSize == index.get()) {
+              // persist
               if (!persister.get().onCommand(dto.get())) {
                 System.out.println("persisting command failed, please retry.");
               }

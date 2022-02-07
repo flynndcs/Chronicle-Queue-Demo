@@ -3,10 +3,8 @@ package com.flynndcs.app.eventstore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.flynndcs.app.dto.CommandDTO;
-import net.openhft.chronicle.queue.ExcerptTailer;
 import net.openhft.chronicle.queue.impl.single.SingleChronicleQueue;
 
-import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -26,9 +24,11 @@ public class CommandPersisterGroup {
     }
   }
 
-  public void start() throws SQLException {
+  public void start() {
     long i = 0L;
     for (ExecutorService service : executors) {
+      // start each long running thread each with knowledge of the number of threads, its index, an
+      // instance of a persister, and a tailer which reads from the end of the queue
       service.submit(
           new CommandPersisterThread(
               executors.size(), i, new EventPersister(dbHostname, WRITER), queue.createTailer()));

@@ -5,7 +5,7 @@ ids=($(seq 1 100))
 
 parallelCurl(){
   for run in {1..1000}; do
-    curl http://localhost:8088/tenant -H 'Content-Type: application/json' -d '{"id": '$1', "action": "add", "quantity": 1}'
+    curl http://localhost:8088/tenant?id=$1
   done
 }
 

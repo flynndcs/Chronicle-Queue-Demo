@@ -70,9 +70,8 @@ public class TenantHandler extends AbstractHandler {
   }
 
   private String handleGet(String queryParams) {
-    longValue.set(
-        countsMap.getUsing(
-            Long.parseLong(queryParams.split("&")[0].split("=")[1]), longValue.get()));
+    // get count of items for this aggregate id from application state
+    longValue.set(countsMap.get(Long.parseLong(queryParams.split("&")[0].split("=")[1])));
     if (longValue.get() != null) {
       return longValue.get().toString() + System.lineSeparator();
     } else {
@@ -82,8 +81,10 @@ public class TenantHandler extends AbstractHandler {
 
   public String handlePost(HttpServletRequest request) {
     try {
+      // get command from json and validate
       commandDto.set(READER.readValue(request.getInputStream(), CommandDTO.class));
       if (CommandDTOValidator.isValid(commandDto.get())) {
+        // append to end of memory mapped file queue on disk
         APPENDER.get().writeDocument(commandDto.get());
         return "Command received" + System.lineSeparator();
       } else {
